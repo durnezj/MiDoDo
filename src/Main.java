@@ -3,6 +3,6 @@ import java.io.IOException;
 public class Main {
     public static void main(String[] args) throws IOException, InterruptedException {
         MinervaWebUtility mw = new MinervaWebUtility();
-        mw.login("your_username","your_password");
+        mw.login("tmdurnez","jjdst9d6");
     }
 }
