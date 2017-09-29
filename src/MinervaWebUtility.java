@@ -138,14 +138,56 @@ public class MinervaWebUtility {
     public boolean buildCourseStructure() throws IOException {
         if(!coursesList.isEmpty()) {
             for (Course course : this.coursesList) {
+                System.out.println(course.getTitle());
                 HtmlPage courseDocumentsHomepage = this.webClient.getPage(course.getCourseDocumentHomeURL());
+                Document parsedCourseHomepage = Jsoup.parse(courseDocumentsHomepage.getWebResponse().getContentAsString());
+
+
+                Elements courseFilesList = parsedCourseHomepage.select("div[id^=document::]");
+
+                for(Element folderOrFile: courseFilesList) {
+                    String folderOrFileLink = folderOrFile.child(0).child(0).attr("href");
+                    String folderOrFileName = folderOrFile.child(0).child(0).val();
+
+                    if(folderOrFileLink.startsWith("https://minerva.ugent.be")) {//it's a download link, means it's a file.
+                        System.out.println(folderOrFileName);
+                        course.addFile(new File(folderOrFileName, folderOrFileLink));
+                    } else    //It's a folder, we need to go deeper
+                        course.addFile(this.getFolderContents(folderOrFileLink));
+                }
+
+                //add files
             }
             return true;
         } else {
             return false;
         }
-
-
-
     }
+
+    public Folder getFolderContents(String folderLink) throws IOException {
+        //scrape the folderlink page to see what files and other folders are in it.
+        //System.out.println(folderLink);
+        if(folderLink.startsWith("document.php")) //it's file
+            folderLink = "https://minerva.ugent.be/main/document/" + folderLink;
+        if(folderLink.startsWith("http://")) //rewrite folder URL to safer HTTPS
+            folderLink.replace("http","https");
+
+        HtmlPage folderIndex = this.webClient.getPage(folderLink);
+        Document parsedFolderIndex = Jsoup.parse(folderIndex.getWebResponse().getContentAsString());
+        System.out.println(folderLink);
+        Elements folderContents = parsedFolderIndex.select("div[id^=document::]");
+        for(Element el : folderContents) {
+            System.out.println("\t" + el.child(0).child(0).attr("href"));
+
+        }
+
+        //decide if its a file or folder and perform actions based on it's type
+
+
+        return new Folder("","");
+    }
+
+
+
+
 }
