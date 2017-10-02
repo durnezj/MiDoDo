@@ -1,3 +1,4 @@
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 
 public class Course {
@@ -5,13 +6,13 @@ public class Course {
     private String title;
     private String prof;
     private String cidreq; //E63%%%%%%%%%
-    private ArrayList<AbstractFile> files;
+    private ArrayList<String> zipDownloadLinkList;
 
     public Course(String title, String prof, String cidreq) {
         this.title = title;
         this.prof = prof;
         this.cidreq = cidreq;
-        this.files = new ArrayList<>();
+        this.zipDownloadLinkList = new ArrayList<>();
     }
 
     public String getTitle() {
@@ -42,7 +43,16 @@ public class Course {
         return COURSE_DOC_HOME_URL + this.cidreq;
     }
 
-    public void addFile(AbstractFile file){
-        this.files.add(file);
+    public ArrayList<String> getZipDownloadLinkList() {
+        return zipDownloadLinkList;
     }
+
+    public void setZipDownloadLinkList(ArrayList<String> zipDownloadLinkList) {
+        this.zipDownloadLinkList = zipDownloadLinkList;
+    }
+
+     public void addToZipList(String downloadLink) {
+        this.zipDownloadLinkList.add(downloadLink);
+     }
+
 }

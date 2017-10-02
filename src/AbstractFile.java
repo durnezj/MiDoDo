@@ -1,9 +1,10 @@
 public class AbstractFile {
     private String name;
-    private String URL;
+    private String zipDownloadURL;
 
-    public AbstractFile(String name){
+    public AbstractFile(String name, String zipDownloadURL){
         this.name = name;
+        this.zipDownloadURL = zipDownloadURL;
 
     }
 
@@ -15,12 +16,11 @@ public class AbstractFile {
         this.name = name;
     }
 
-    public String getURL() {
-        return URL;
+    public String getZipDownloadURL() {
+        return zipDownloadURL;
     }
 
-    public void setURL(String URL) {
-        this.URL = URL;
+    public void setZipDownloadURL(String zipDownloadURL) {
+        this.zipDownloadURL = zipDownloadURL;
     }
-
 }

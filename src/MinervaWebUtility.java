@@ -1,17 +1,22 @@
 import com.gargoylesoftware.htmlunit.BrowserVersion;
+import com.gargoylesoftware.htmlunit.UnexpectedPage;
 import com.gargoylesoftware.htmlunit.WebClient;
 import com.gargoylesoftware.htmlunit.html.*;
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.exception.ZipException;
+import org.apache.commons.io.FileUtils;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+
+import java.io.*;
+import java.io.File;
 import java.net.URL;
-import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.logging.Level;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * This class contains the logic for logging in to Minerva and getting all the resources from the website to build the download list.
@@ -21,15 +26,17 @@ public class MinervaWebUtility {
     public static final String LOGIN_URL = "https://minerva.ugent.be/secure/index.php";
     private WebClient webClient;
     public ArrayList<Course> coursesList;
+    private String downloadDirectory;
 
     /**
      * This function needs to be called before executing everyhting else.
+     *
      * @return boolean True on success, False on failure
      */
     private boolean initialise() {
         this.coursesList = new ArrayList<>();
         this.webClient = new WebClient(BrowserVersion.CHROME);
-        //set some options of the HtmlUnit WebClient
+        this.downloadDirectory = "C:\\Users\\Thibault Durnez\\Documents\\midodo test";
         webClient.getOptions().setUseInsecureSSL(true);
         webClient.getOptions().setRedirectEnabled(true);
         webClient.getOptions().setJavaScriptEnabled(false);
@@ -40,39 +47,8 @@ public class MinervaWebUtility {
         return true;
     }
 
-    public MinervaWebUtility(){
+    public MinervaWebUtility() {
         this.initialise();
-    }
-
-    /**
-     * This function gets an authentication salt from the minerva login page.
-     *
-     * @return String the authentication salt string as a 32 character string, NULL on error
-     */
-    public String getAuthenticationSalt() {
-        //TODO: rewrite to use HtmlUnit
-        String authenticationSalt;
-        URLConnection minervaConnection;
-        try {
-            minervaConnection = new URL(LOGIN_URL).openConnection();
-            BufferedReader in = new BufferedReader(
-                    new InputStreamReader(
-                            minervaConnection.getInputStream(), "UTF-8"
-                    )
-            );
-            String inputLine;
-            StringBuilder responseHTML = new StringBuilder();
-            while ((inputLine = in.readLine()) != null)
-                responseHTML.append(inputLine + "\n");
-            in.close();
-            Document parsedHTML = Jsoup.parse(responseHTML.toString());
-            authenticationSalt = parsedHTML.select("input[name=authentication_salt]").first().attr("value");
-            //System.out.println(authenticationSalt);
-            return authenticationSalt;
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
     }
 
 
@@ -97,14 +73,17 @@ public class MinervaWebUtility {
             HtmlPage logged_in = loginButton.click();
             //System.out.println(logged_in.getWebResponse().getContentAsString());
             this.buildCourseIndex(logged_in);
-            System.out.println("Overview of your courses:");
-            for(Course course: this.coursesList){
-                System.out.println(course.getTitle());
-                System.out.println("\t- " + course.getCidreq());
-                System.out.println("\t- " + course.getProf());
-            }
             this.buildCourseStructure();
+            this.downloadAndExtractFiles();
 
+            /*
+            System.out.println("Overview of your courses:");
+            for (Course course : this.coursesList) {
+                System.out.println(course.getTitle() + " " + course.getProf() + " " + course.getCidreq());
+                for (String zip : course.getZipDownloadLinkList())
+                    System.out.println("\t" + zip);
+            }
+            */
             return true;
         } catch (Exception e) {
             return false;
@@ -114,13 +93,14 @@ public class MinervaWebUtility {
 
     /**
      * This function scrapes the index page and builds the index of the courses from the landing page.
+     *
      * @return boolean Treu on succes, false on fail.
      */
     public boolean buildCourseIndex(HtmlPage MinervaHomepage) {
         //made for cursussen zonder categorie, need cases to expand this. Again, only made for engineering atm.
         Document parsedHomepage = Jsoup.parse(MinervaHomepage.getWebResponse().getContentAsString());
-        Elements courseDivs= parsedHomepage.select("div[id^=course_E6]");
-        for (Element el :courseDivs) {
+        Elements courseDivs = parsedHomepage.select("div[id^=course_E6]");
+        for (Element el : courseDivs) {
             String[] profString = el.text().split("-");
             this.coursesList.add(new Course(
                     Jsoup.parse(el.childNode(1).toString()).text(),
@@ -133,61 +113,108 @@ public class MinervaWebUtility {
 
     /**
      * this function build the folder - file structure for each course.
+     *
      * @return boolean True on success, False on failure
      */
     public boolean buildCourseStructure() throws IOException {
-        if(!coursesList.isEmpty()) {
+        if (!coursesList.isEmpty()) {
             for (Course course : this.coursesList) {
-                System.out.println(course.getTitle());
+                //System.out.println("Course Title: " + course.getTitle());
                 HtmlPage courseDocumentsHomepage = this.webClient.getPage(course.getCourseDocumentHomeURL());
                 Document parsedCourseHomepage = Jsoup.parse(courseDocumentsHomepage.getWebResponse().getContentAsString());
-
-
                 Elements courseFilesList = parsedCourseHomepage.select("div[id^=document::]");
+                for (Element folderOrFile : courseFilesList) {
+                    String folderOrFileName = folderOrFile.child(0).child(0).attr("title");
+                    String zipDownloadlink = folderOrFile.nextSibling().childNode(0).attr("href");
 
-                for(Element folderOrFile: courseFilesList) {
-                    String folderOrFileLink = folderOrFile.child(0).child(0).attr("href");
-                    String folderOrFileName = folderOrFile.child(0).child(0).val();
-
-                    if(folderOrFileLink.startsWith("https://minerva.ugent.be")) {//it's a download link, means it's a file.
-                        System.out.println(folderOrFileName);
-                        course.addFile(new File(folderOrFileName, folderOrFileLink));
-                    } else    //It's a folder, we need to go deeper
-                        course.addFile(this.getFolderContents(folderOrFileLink));
+                    if (zipDownloadlink.startsWith("document.php?")) {
+                        zipDownloadlink = "https://minerva.ugent.be/main/document/" + zipDownloadlink;
+                    }
+                    if (zipDownloadlink.startsWith("http://")) {
+                        zipDownloadlink.replace("http://", "https://");
+                    }
+                    course.addToZipList(zipDownloadlink);
                 }
-
-                //add files
             }
             return true;
         } else {
-            return false;
+            throw new NullPointerException("empty Course List!");
         }
     }
 
-    public Folder getFolderContents(String folderLink) throws IOException {
-        //scrape the folderlink page to see what files and other folders are in it.
-        //System.out.println(folderLink);
-        if(folderLink.startsWith("document.php")) //it's file
-            folderLink = "https://minerva.ugent.be/main/document/" + folderLink;
-        if(folderLink.startsWith("http://")) //rewrite folder URL to safer HTTPS
-            folderLink.replace("http","https");
 
-        HtmlPage folderIndex = this.webClient.getPage(folderLink);
-        Document parsedFolderIndex = Jsoup.parse(folderIndex.getWebResponse().getContentAsString());
-        System.out.println(folderLink);
-        Elements folderContents = parsedFolderIndex.select("div[id^=document::]");
-        for(Element el : folderContents) {
-            System.out.println("\t" + el.child(0).child(0).attr("href"));
+    public void downloadAndExtractFiles() {
+        for (Course course : this.coursesList) {
+            String courseFolderFullPath = this.downloadDirectory + "\\" + course.getTitle();
+            File courseFolder = new File(courseFolderFullPath);
+            boolean dirOk = false;
+
+            try {
+                //get boolean and return it for better error checking
+                dirOk = courseFolder.mkdir();
+            } catch (SecurityException e) {
+                e.printStackTrace();
+            }
+
+            System.out.println("unzipping");
+            for (String zipDownloadLink : course.getZipDownloadLinkList()) {
+                if(zipDownloadLink.toLowerCase().contains("action=downloadfolder")) {//it's a zip to extract
+                    downloadAndExtractZipFile(zipDownloadLink, courseFolderFullPath);
+                } else { //it's a regular file to download
+                    downloadRegularFile(zipDownloadLink, courseFolderFullPath);
+                }
+            }
 
         }
-
-        //decide if its a file or folder and perform actions based on it's type
-
-
-        return new Folder("","");
     }
 
+    public void downloadRegularFile(String FileURL, String outputFolder) {
+        try {
+            String fileName = FileURL.split("path=%2F")[1].split("&")[0];
+            System.out.println(outputFolder + "\\" + fileName);
+            InputStream filePage = this.webClient.getPage(FileURL).getWebResponse().getContentAsStream();
+            OutputStream fileOuput = new FileOutputStream(new File(outputFolder + "\\" + fileName));
+            int read = 0;
+            byte[] bytes = new byte[1024];
 
+            while ((read = filePage.read(bytes)) != -1) {
+                fileOuput.write(bytes, 0, read);
+            }
+            //TODO CHECK FOR EXISTING SO WE DONT OVERWRITE STUFF!!!!!!!!
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
+    public void downloadAndExtractZipFile(String zipURL, String outputFolder) {
+        //byte[] buffer = new byte[1024];
+        //File tempDownloadFile = new File(outputFolder + "\\MiDoDoTemp.zip");
+        try {
+            //download to temp file
+            //InputStream ZipPage = this.webClient.getPage(new URL(zipURL)).getEnclosingWindow().get
+            //OutputStream os = new FileOutputStream(tempDownloadFile);
 
+            final UnexpectedPage pdfPage = this.webClient.getPage(zipURL);
+            InputStream is = pdfPage.getWebResponse().getContentAsStream();
+            OutputStream outStream = null;
+
+            File targetFile = new File(outputFolder + "\\MiDoDoTemp.zip");
+            outStream = new FileOutputStream(targetFile);
+            byte[] buffer = new byte[8 * 1024];
+            int bytesRead;
+            while ((bytesRead = is.read(buffer)) != -1)
+            {
+                outStream.write(buffer, 0, bytesRead);
+            }
+
+            ZipFile zipFile = new ZipFile(targetFile);
+            System.out.println("extracting to " + outputFolder + "\\");
+            zipFile.extractAll(outputFolder);
+
+            targetFile.delete();
+            System.out.println("Done");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
 }
